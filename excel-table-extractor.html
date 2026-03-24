@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Excel Table Extractor</title>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f0f2f5;
+      color: #1a1a2e;
+      min-height: 100vh;
+      padding: 32px 16px;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+      color: #0f3460;
+    }
+
+    .subtitle {
+      color: #666;
+      font-size: 0.9rem;
+      margin-bottom: 32px;
+    }
+
+    /* Upload zone */
+    .upload-zone {
+      border: 2px dashed #c5cae9;
+      border-radius: 12px;
+      padding: 48px 24px;
+      text-align: center;
+      background: #fff;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      position: relative;
+    }
+
+    .upload-zone:hover, .upload-zone.drag-over {
+      border-color: #3f51b5;
+      background: #f5f6ff;
+    }
+
+    .upload-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+
+    .upload-icon {
+      font-size: 2.5rem;
+      margin-bottom: 12px;
+      display: block;
+    }
+
+    .upload-zone p {
+      color: #555;
+      font-size: 1rem;
+    }
+
+    .upload-zone .hint {
+      font-size: 0.8rem;
+      color: #999;
+      margin-top: 6px;
+    }
+
+    /* Sheet selector */
+    .sheet-selector {
+      display: none;
+      margin-top: 20px;
+      background: #fff;
+      border-radius: 12px;
+      padding: 16px 20px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+
+    .sheet-selector label {
+      font-weight: 600;
+      font-size: 0.85rem;
+      color: #555;
+      margin-right: 10px;
+    }
+
+    .sheet-selector select {
+      padding: 6px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      background: #fafafa;
+    }
+
+    /* Controls */
+    .controls {
+      display: none;
+      margin-top: 20px;
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px 24px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      gap: 20px;
+      flex-wrap: wrap;
+      align-items: flex-end;
+    }
+
+    .controls.visible { display: flex; }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .control-group label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .control-group input[type="number"] {
+      width: 90px;
+      padding: 8px 10px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 0.95rem;
+      text-align: center;
+    }
+
+    .control-group input[type="number"]:focus {
+      outline: none;
+      border-color: #3f51b5;
+      box-shadow: 0 0 0 3px rgba(63,81,181,0.15);
+    }
+
+    .controls-divider {
+      width: 1px;
+      background: #eee;
+      align-self: stretch;
+      margin: 0 4px;
+    }
+
+    .hint-text {
+      font-size: 0.8rem;
+      color: #888;
+      align-self: flex-end;
+      padding-bottom: 10px;
+    }
+
+    .download-btn {
+      margin-left: auto;
+      padding: 10px 24px;
+      background: #3f51b5;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    .download-btn:hover { background: #303f9f; }
+    .download-btn:active { transform: scale(0.98); }
+    .download-btn:disabled { background: #b0bec5; cursor: not-allowed; }
+
+    /* Preview table */
+    .preview-wrapper {
+      display: none;
+      margin-top: 20px;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+
+    .preview-wrapper.visible { display: block; }
+
+    .preview-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid #eee;
+      font-weight: 600;
+      font-size: 0.9rem;
+      color: #444;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .badge {
+      padding: 2px 10px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .badge-selected { background: #e8eaf6; color: #3f51b5; }
+    .badge-excluded { background: #fce4ec; color: #c62828; }
+
+    .table-scroll {
+      overflow-x: auto;
+      max-height: 520px;
+      overflow-y: auto;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 0.82rem;
+    }
+
+    th, td {
+      padding: 7px 12px;
+      text-align: left;
+      white-space: nowrap;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    thead th {
+      background: #f5f5f5;
+      font-weight: 600;
+      color: #555;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    .row-num {
+      color: #bbb;
+      font-size: 0.75rem;
+      width: 40px;
+      text-align: center;
+      user-select: none;
+    }
+
+    tr.selected { background: #f0f4ff; }
+    tr.selected td { border-bottom-color: #e0e7ff; }
+    tr.excluded { opacity: 0.35; }
+    tr.header-row { background: #fff9e6; }
+    tr.header-row td { font-weight: 600; }
+    tr.clickable { cursor: pointer; }
+    tr.clickable:hover { background: #f8f9ff; }
+    tr.selected.clickable:hover { background: #e8edff; }
+
+    td.col-excluded, th.col-excluded {
+      opacity: 0.25;
+      background: repeating-linear-gradient(
+        135deg,
+        transparent,
+        transparent 4px,
+        rgba(0,0,0,0.04) 4px,
+        rgba(0,0,0,0.04) 8px
+      );
+    }
+
+    .empty-cell { color: #ccc; font-style: italic; }
+
+    .legend {
+      padding: 10px 20px;
+      border-top: 1px solid #f0f0f0;
+      display: flex;
+      gap: 20px;
+      font-size: 0.78rem;
+      color: #777;
+    }
+
+    .legend-item { display: flex; align-items: center; gap: 6px; }
+    .legend-dot {
+      width: 12px; height: 12px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+    .dot-selected { background: #e8eaf6; border: 1px solid #3f51b5; }
+    .dot-header { background: #fff9e6; border: 1px solid #f0c040; }
+    .dot-excluded { background: #fff; border: 1px solid #ddd; opacity: 0.4; }
+    .dot-col-excluded {
+      background: repeating-linear-gradient(135deg, #fff, #fff 3px, #ddd 3px, #ddd 6px);
+      border: 1px solid #ccc; opacity: 0.5;
+    }
+
+    .status-bar {
+      margin-top: 16px;
+      padding: 10px 16px;
+      background: #e8f5e9;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      color: #2e7d32;
+      display: none;
+    }
+
+    .status-bar.visible { display: block; }
+    .status-bar.warning { background: #fff3e0; color: #e65100; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>Excel Table Extractor</h1>
+  <p class="subtitle">Upload an Excel file, select the table range, and download a clean version with just the data.</p>
+
+  <div class="upload-zone" id="uploadZone">
+    <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm,.csv">
+    <span class="upload-icon">📊</span>
+    <p>Drag & drop an Excel file here, or click to browse</p>
+    <p class="hint">Supports .xlsx, .xls, .xlsm, .csv</p>
+  </div>
+
+  <div class="sheet-selector" id="sheetSelector">
+    <label for="sheetSelect">Sheet:</label>
+    <select id="sheetSelect"></select>
+  </div>
+
+  <div class="controls" id="controls">
+    <div class="control-group">
+      <label>Start Row</label>
+      <input type="number" id="startRow" min="1" value="1">
+    </div>
+    <div class="control-group">
+      <label>End Row</label>
+      <input type="number" id="endRow" min="1" value="1">
+    </div>
+    <div class="controls-divider"></div>
+    <div class="control-group">
+      <label>Start Col</label>
+      <input type="number" id="startCol" min="1" value="1">
+    </div>
+    <div class="control-group">
+      <label>End Col</label>
+      <input type="number" id="endCol" min="1" value="1">
+    </div>
+    <span class="hint-text">Click rows to set row range • type col numbers to adjust columns</span>
+    <button class="download-btn" id="downloadBtn" disabled>⬇ Download Table</button>
+  </div>
+
+  <div class="status-bar" id="statusBar"></div>
+
+  <div class="preview-wrapper" id="previewWrapper">
+    <div class="preview-header">
+      Preview
+      <span class="badge badge-selected" id="selectedBadge"></span>
+      <span class="badge badge-excluded" id="excludedBadge"></span>
+    </div>
+    <div class="table-scroll">
+      <table id="previewTable">
+        <thead><tr id="previewHead"></tr></thead>
+        <tbody id="previewBody"></tbody>
+      </table>
+    </div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot dot-selected"></div> Selected rows</div>
+      <div class="legend-item"><div class="legend-dot dot-header"></div> Header row</div>
+      <div class="legend-item"><div class="legend-dot dot-excluded"></div> Excluded rows</div>
+      <div class="legend-item"><div class="legend-dot dot-col-excluded"></div> Excluded columns</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let workbook = null;
+  let currentSheet = null;
+  let allRows = [];
+  let numTotalCols = 0;
+
+  const fileInput = document.getElementById('fileInput');
+  const uploadZone = document.getElementById('uploadZone');
+  const sheetSelector = document.getElementById('sheetSelector');
+  const sheetSelect = document.getElementById('sheetSelect');
+  const controls = document.getElementById('controls');
+  const startRowInput = document.getElementById('startRow');
+  const endRowInput = document.getElementById('endRow');
+  const startColInput = document.getElementById('startCol');
+  const endColInput = document.getElementById('endCol');
+  const downloadBtn = document.getElementById('downloadBtn');
+  const previewWrapper = document.getElementById('previewWrapper');
+  const previewBody = document.getElementById('previewBody');
+  const previewHead = document.getElementById('previewHead');
+  const statusBar = document.getElementById('statusBar');
+  const selectedBadge = document.getElementById('selectedBadge');
+  const excludedBadge = document.getElementById('excludedBadge');
+
+  // Drag & drop
+  uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+  uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+  uploadZone.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadZone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file) processFile(file);
+  });
+
+  fileInput.addEventListener('change', e => {
+    if (e.target.files[0]) processFile(e.target.files[0]);
+  });
+
+  sheetSelect.addEventListener('change', () => loadSheet(sheetSelect.value));
+  startRowInput.addEventListener('input', updatePreview);
+  endRowInput.addEventListener('input', updatePreview);
+  startColInput.addEventListener('input', updatePreview);
+  endColInput.addEventListener('input', updatePreview);
+  downloadBtn.addEventListener('click', downloadTable);
+
+  function processFile(file) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const data = new Uint8Array(e.target.result);
+      workbook = XLSX.read(data, { type: 'array', cellDates: true });
+
+      // Populate sheet selector
+      sheetSelect.innerHTML = '';
+      workbook.SheetNames.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        sheetSelect.appendChild(opt);
+      });
+
+      if (workbook.SheetNames.length > 1) {
+        sheetSelector.style.display = 'block';
+      } else {
+        sheetSelector.style.display = 'none';
+      }
+
+      loadSheet(workbook.SheetNames[0]);
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function loadSheet(sheetName) {
+    currentSheet = workbook.Sheets[sheetName];
+    const range = XLSX.utils.decode_range(currentSheet['!ref'] || 'A1');
+    numTotalCols = range.e.c - range.s.c + 1;
+
+    allRows = [];
+    for (let r = range.s.r; r <= range.e.r; r++) {
+      const row = [];
+      for (let c = range.s.c; c <= range.e.c; c++) {
+        const cell = currentSheet[XLSX.utils.encode_cell({ r, c })];
+        row.push(cell ? cell.v : null);
+      }
+      allRows.push(row);
+    }
+
+    const { startRow, endRow, startCol, endCol } = detectTableRange(allRows);
+
+    startRowInput.max = allRows.length;
+    endRowInput.max = allRows.length;
+    startRowInput.value = startRow + 1;
+    endRowInput.value = endRow + 1;
+
+    startColInput.max = numTotalCols;
+    endColInput.max = numTotalCols;
+    startColInput.value = startCol + 1;
+    endColInput.value = endCol + 1;
+
+    renderPreview(numTotalCols);
+    updatePreview();
+
+    controls.classList.add('visible');
+    previewWrapper.classList.add('visible');
+    downloadBtn.disabled = false;
+  }
+
+  // Detect table row range and column range automatically.
+  function detectTableRange(rows) {
+    const numCols = rows[0] ? rows[0].length : 0;
+    let startRow = 0, endRow = rows.length - 1;
+
+    // Row start: first row where non-null values appear in >= 4 cols AND span >= 3 columns apart
+    for (let i = 0; i < rows.length; i++) {
+      const nonNullCols = rows[i].map((v, ci) => v !== null && v !== '' ? ci : -1).filter(ci => ci >= 0);
+      if (nonNullCols.length >= 4 && (nonNullCols[nonNullCols.length - 1] - nonNullCols[0]) >= 3) {
+        startRow = i;
+        break;
+      }
+    }
+
+    // Row end: last row with data spanning >= 2 columns
+    for (let i = rows.length - 1; i >= startRow; i--) {
+      const nonNullCols = rows[i].map((v, ci) => v !== null && v !== '' ? ci : -1).filter(ci => ci >= 0);
+      if (nonNullCols.length >= 2) {
+        endRow = i;
+        break;
+      }
+    }
+
+    // Col start: first column that has any non-null value in the detected row range
+    let startCol = 0;
+    for (let c = 0; c < numCols; c++) {
+      const hasData = rows.slice(startRow, endRow + 1).some(row => row[c] !== null && row[c] !== '');
+      if (hasData) { startCol = c; break; }
+    }
+
+    // Col end: last column with any non-null value in the detected row range
+    let endCol = numCols - 1;
+    for (let c = numCols - 1; c >= startCol; c--) {
+      const hasData = rows.slice(startRow, endRow + 1).some(row => row[c] !== null && row[c] !== '');
+      if (hasData) { endCol = c; break; }
+    }
+
+    return { startRow, endRow, startCol, endCol };
+  }
+
+  function renderPreview(numCols) {
+    // Header row with column letters
+    previewHead.innerHTML = '';
+    const thNum = document.createElement('th');
+    thNum.textContent = '#';
+    thNum.className = 'row-num';
+    previewHead.appendChild(thNum);
+    for (let c = 0; c < numCols; c++) {
+      const th = document.createElement('th');
+      th.textContent = XLSX.utils.encode_col(c);
+      th.dataset.colIndex = c;
+      previewHead.appendChild(th);
+    }
+
+    // Body rows
+    previewBody.innerHTML = '';
+    allRows.forEach((row, i) => {
+      const tr = document.createElement('tr');
+      tr.dataset.rowIndex = i;
+      tr.classList.add('clickable');
+
+      const tdNum = document.createElement('td');
+      tdNum.className = 'row-num';
+      tdNum.textContent = i + 1;
+      tr.appendChild(tdNum);
+
+      row.forEach((val, c) => {
+        const td = document.createElement('td');
+        td.dataset.colIndex = c;
+        if (val === null || val === '') {
+          td.innerHTML = '<span class="empty-cell">·</span>';
+        } else if (val instanceof Date) {
+          td.textContent = val.toLocaleDateString();
+        } else {
+          td.textContent = String(val);
+        }
+        tr.appendChild(td);
+      });
+
+      tr.addEventListener('click', () => handleRowClick(i));
+      previewBody.appendChild(tr);
+    });
+  }
+
+  let clickState = 0; // 0 = next click sets start, 1 = next click sets end
+  function handleRowClick(rowIndex) {
+    const start = parseInt(startRowInput.value) - 1;
+    const end = parseInt(endRowInput.value) - 1;
+
+    if (clickState === 0 || rowIndex < start) {
+      startRowInput.value = rowIndex + 1;
+      clickState = 1;
+    } else if (clickState === 1 || rowIndex > end) {
+      if (rowIndex < start) {
+        startRowInput.value = rowIndex + 1;
+      } else {
+        endRowInput.value = rowIndex + 1;
+        clickState = 0;
+      }
+    } else {
+      // Click inside range — toggle: shrink from nearest edge
+      const distFromStart = rowIndex - start;
+      const distFromEnd = end - rowIndex;
+      if (distFromStart <= distFromEnd) {
+        startRowInput.value = rowIndex + 1;
+        clickState = 1;
+      } else {
+        endRowInput.value = rowIndex + 1;
+        clickState = 0;
+      }
+    }
+    updatePreview();
+  }
+
+  function updatePreview() {
+    const startR = Math.max(1, parseInt(startRowInput.value) || 1) - 1;
+    const endR   = Math.min(allRows.length, parseInt(endRowInput.value) || allRows.length) - 1;
+    const startC = Math.max(1, parseInt(startColInput.value) || 1) - 1;
+    const endC   = Math.min(numTotalCols, parseInt(endColInput.value) || numTotalCols) - 1;
+
+    let hasError = false;
+    if (startR > endR) { showStatus('Start row must be ≤ end row.', true); hasError = true; }
+    if (startC > endC) { showStatus('Start col must be ≤ end col.', true); hasError = true; }
+    if (!hasError) hideStatus();
+
+    // Update row highlighting
+    previewBody.querySelectorAll('tr').forEach(tr => {
+      const i = parseInt(tr.dataset.rowIndex);
+      tr.classList.remove('selected', 'excluded', 'header-row');
+      if (i >= startR && i <= endR) {
+        tr.classList.add('selected');
+        if (i === startR) tr.classList.add('header-row');
+      } else {
+        tr.classList.add('excluded');
+      }
+    });
+
+    // Update column highlighting — apply to both thead th and tbody td
+    document.querySelectorAll('#previewHead th[data-col-index], #previewBody td[data-col-index]').forEach(el => {
+      const c = parseInt(el.dataset.colIndex);
+      el.classList.toggle('col-excluded', c < startC || c > endC);
+    });
+
+    const selectedRows = endR - startR + 1;
+    const selectedCols = endC - startC + 1;
+    const excludedRows = allRows.length - selectedRows;
+    selectedBadge.textContent = `${selectedRows} row${selectedRows !== 1 ? 's' : ''} × ${selectedCols} col${selectedCols !== 1 ? 's' : ''} selected`;
+    excludedBadge.textContent = `${excludedRows} row${excludedRows !== 1 ? 's' : ''} excluded`;
+  }
+
+  function showStatus(msg, warning = false) {
+    statusBar.textContent = msg;
+    statusBar.classList.add('visible');
+    statusBar.classList.toggle('warning', warning);
+    statusBar.classList.toggle('', !warning);
+  }
+
+  function hideStatus() {
+    statusBar.classList.remove('visible');
+  }
+
+  function downloadTable() {
+    const startRIdx = Math.max(1, parseInt(startRowInput.value) || 1) - 1;
+    const endRIdx   = Math.min(allRows.length, parseInt(endRowInput.value) || allRows.length) - 1;
+    const startCIdx = Math.max(1, parseInt(startColInput.value) || 1) - 1;
+    const endCIdx   = Math.min(numTotalCols, parseInt(endColInput.value) || numTotalCols) - 1;
+
+    if (startRIdx > endRIdx || startCIdx > endCIdx) {
+      showStatus('Invalid range: start must be ≤ end for both rows and columns.', true);
+      return;
+    }
+
+    const origSheet = currentSheet;
+    const origRange = XLSX.utils.decode_range(origSheet['!ref'] || 'A1');
+
+    const newWb = XLSX.utils.book_new();
+    const newSheetData = {};
+    let newRow = 0;
+
+    for (let r = startRIdx; r <= endRIdx; r++) {
+      let newCol = 0;
+      for (let c = startCIdx; c <= endCIdx; c++) {
+        const origCell = origSheet[XLSX.utils.encode_cell({ r: origRange.s.r + r, c: origRange.s.c + c })];
+        if (origCell) {
+          newSheetData[XLSX.utils.encode_cell({ r: newRow, c: newCol })] = Object.assign({}, origCell);
+        }
+        newCol++;
+      }
+      newRow++;
+    }
+
+    const outRows = newRow;
+    const outCols = endCIdx - startCIdx + 1;
+
+    newSheetData['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: outRows - 1, c: outCols - 1 } });
+
+    // Preserve column widths for selected columns
+    if (origSheet['!cols']) {
+      newSheetData['!cols'] = origSheet['!cols'].slice(startCIdx, endCIdx + 1);
+    }
+
+    XLSX.utils.book_append_sheet(newWb, newSheetData, 'Table');
+
+    const sheetName = sheetSelect.value || 'Table';
+    const safeName = sheetName.replace(/[^a-zA-Z0-9_-]/g, '_');
+    XLSX.writeFile(newWb, `${safeName}_table_only.xlsx`);
+
+    showStatus(`Downloaded ${outRows} rows × ${outCols} columns as "${safeName}_table_only.xlsx"`);
+  }
+</script>
+</body>
+</html>
