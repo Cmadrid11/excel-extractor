@@ -266,6 +266,39 @@
       );
     }
 
+    td.col-empty, th.col-empty {
+      opacity: 0.35;
+      background: repeating-linear-gradient(
+        135deg,
+        #fff8f0,
+        #fff8f0 4px,
+        #ffe8cc 4px,
+        #ffe8cc 8px
+      );
+    }
+
+    td.col-skipped, th.col-skipped {
+      opacity: 0.3;
+      background: repeating-linear-gradient(
+        135deg,
+        #fdf0f5,
+        #fdf0f5 4px,
+        #f8c0d4 4px,
+        #f8c0d4 8px
+      );
+    }
+
+    th.col-toggleable {
+      cursor: pointer;
+      user-select: none;
+    }
+    th.col-toggleable:hover {
+      background: #e8f0fe;
+    }
+    th.col-skipped.col-toggleable:hover {
+      background: #fce4ec;
+    }
+
     .empty-cell { color: #ccc; font-style: italic; }
 
     .legend {
@@ -289,6 +322,14 @@
     .dot-col-excluded {
       background: repeating-linear-gradient(135deg, #fff, #fff 3px, #ddd 3px, #ddd 6px);
       border: 1px solid #ccc; opacity: 0.5;
+    }
+    .dot-col-empty {
+      background: repeating-linear-gradient(135deg, #fff8f0, #fff8f0 3px, #ffe8cc 3px, #ffe8cc 6px);
+      border: 1px solid #f5a623; opacity: 0.7;
+    }
+    .dot-col-skipped {
+      background: repeating-linear-gradient(135deg, #fdf0f5, #fdf0f5 3px, #f8c0d4 3px, #f8c0d4 6px);
+      border: 1px solid #e91e63; opacity: 0.7;
     }
 
     .status-bar {
@@ -340,7 +381,7 @@
       <label>End Col</label>
       <input type="number" id="endCol" min="1" value="1">
     </div>
-    <span class="hint-text">Click rows to set row range • type col numbers to adjust columns</span>
+    <span class="hint-text">Click rows to set row range • type col numbers or click col headers to toggle</span>
     <button class="download-btn" id="downloadBtn" disabled>⬇ Download Table</button>
   </div>
 
@@ -363,6 +404,8 @@
       <div class="legend-item"><div class="legend-dot dot-header"></div> Header row</div>
       <div class="legend-item"><div class="legend-dot dot-excluded"></div> Excluded rows</div>
       <div class="legend-item"><div class="legend-dot dot-col-excluded"></div> Excluded columns</div>
+      <div class="legend-item"><div class="legend-dot dot-col-empty"></div> Empty columns (auto-removed)</div>
+      <div class="legend-item"><div class="legend-dot dot-col-skipped"></div> Skipped columns (click header to toggle)</div>
     </div>
   </div>
 </div>
@@ -372,6 +415,7 @@
   let currentSheet = null;
   let allRows = [];
   let numTotalCols = 0;
+  let skippedCols = new Set(); // manually toggled off by clicking a column header
 
   const fileInput = document.getElementById('fileInput');
   const uploadZone = document.getElementById('uploadZone');
@@ -438,6 +482,7 @@
   }
 
   function loadSheet(sheetName) {
+    skippedCols = new Set(); // reset manual skips on sheet change
     currentSheet = workbook.Sheets[sheetName];
     const range = XLSX.utils.decode_range(currentSheet['!ref'] || 'A1');
     numTotalCols = range.e.c - range.s.c + 1;
@@ -523,6 +568,16 @@
       const th = document.createElement('th');
       th.textContent = XLSX.utils.encode_col(c);
       th.dataset.colIndex = c;
+      th.classList.add('col-toggleable');
+      th.title = 'Click to skip/include this column';
+      th.addEventListener('click', () => {
+        if (skippedCols.has(c)) {
+          skippedCols.delete(c);
+        } else {
+          skippedCols.add(c);
+        }
+        updatePreview();
+      });
       previewHead.appendChild(th);
     }
 
@@ -586,6 +641,17 @@
     updatePreview();
   }
 
+  // Returns a Set of column indices (within startC..endC) that are entirely empty
+  // across the selected row range.
+  function computeEmptyCols(startR, endR, startC, endC) {
+    const empty = new Set();
+    for (let c = startC; c <= endC; c++) {
+      const hasData = allRows.slice(startR, endR + 1).some(row => row[c] !== null && row[c] !== '');
+      if (!hasData) empty.add(c);
+    }
+    return empty;
+  }
+
   function updatePreview() {
     const startR = Math.max(1, parseInt(startRowInput.value) || 1) - 1;
     const endR   = Math.min(allRows.length, parseInt(endRowInput.value) || allRows.length) - 1;
@@ -596,6 +662,8 @@
     if (startR > endR) { showStatus('Start row must be ≤ end row.', true); hasError = true; }
     if (startC > endC) { showStatus('Start col must be ≤ end col.', true); hasError = true; }
     if (!hasError) hideStatus();
+
+    const emptyCols = (startR <= endR && startC <= endC) ? computeEmptyCols(startR, endR, startC, endC) : new Set();
 
     // Update row highlighting
     previewBody.querySelectorAll('tr').forEach(tr => {
@@ -609,17 +677,29 @@
       }
     });
 
-    // Update column highlighting — apply to both thead th and tbody td
+    // Update column highlighting — outside range, empty, manually skipped, or normal
     document.querySelectorAll('#previewHead th[data-col-index], #previewBody td[data-col-index]').forEach(el => {
       const c = parseInt(el.dataset.colIndex);
-      el.classList.toggle('col-excluded', c < startC || c > endC);
+      const outsideRange = c < startC || c > endC;
+      const emptyInRange = !outsideRange && emptyCols.has(c);
+      const manualSkip  = !outsideRange && !emptyInRange && skippedCols.has(c);
+      el.classList.toggle('col-excluded', outsideRange);
+      el.classList.toggle('col-empty',    emptyInRange);
+      el.classList.toggle('col-skipped',  manualSkip);
     });
 
     const selectedRows = endR - startR + 1;
-    const selectedCols = endC - startC + 1;
+    const totalCols = endC - startC + 1;
+    // skipped cols that are within range and not already auto-removed
+    const manualSkipsInRange = [...skippedCols].filter(c => c >= startC && c <= endC && !emptyCols.has(c)).length;
+    const keptCols = totalCols - emptyCols.size - manualSkipsInRange;
     const excludedRows = allRows.length - selectedRows;
-    selectedBadge.textContent = `${selectedRows} row${selectedRows !== 1 ? 's' : ''} × ${selectedCols} col${selectedCols !== 1 ? 's' : ''} selected`;
-    excludedBadge.textContent = `${excludedRows} row${excludedRows !== 1 ? 's' : ''} excluded`;
+    const removedNote = [];
+    if (emptyCols.size)      removedNote.push(`${emptyCols.size} empty`);
+    if (manualSkipsInRange)  removedNote.push(`${manualSkipsInRange} skipped`);
+    selectedBadge.textContent = `${selectedRows} row${selectedRows !== 1 ? 's' : ''} × ${keptCols} col${keptCols !== 1 ? 's' : ''} selected`;
+    excludedBadge.textContent = excludedRows + ` row${excludedRows !== 1 ? 's' : ''} excluded` +
+      (removedNote.length ? ` · ${removedNote.join(', ')} col${removedNote.length > 1 || (emptyCols.size + manualSkipsInRange) > 1 ? 's' : ''} removed` : '');
   }
 
   function showStatus(msg, warning = false) {
@@ -647,30 +727,35 @@
     const origSheet = currentSheet;
     const origRange = XLSX.utils.decode_range(origSheet['!ref'] || 'A1');
 
+    // Determine which columns to keep (non-empty and not manually skipped)
+    const emptyCols = computeEmptyCols(startRIdx, endRIdx, startCIdx, endCIdx);
+    const keptCols = [];
+    for (let c = startCIdx; c <= endCIdx; c++) {
+      if (!emptyCols.has(c) && !skippedCols.has(c)) keptCols.push(c);
+    }
+
     const newWb = XLSX.utils.book_new();
     const newSheetData = {};
     let newRow = 0;
 
     for (let r = startRIdx; r <= endRIdx; r++) {
-      let newCol = 0;
-      for (let c = startCIdx; c <= endCIdx; c++) {
+      keptCols.forEach((c, newCol) => {
         const origCell = origSheet[XLSX.utils.encode_cell({ r: origRange.s.r + r, c: origRange.s.c + c })];
         if (origCell) {
           newSheetData[XLSX.utils.encode_cell({ r: newRow, c: newCol })] = Object.assign({}, origCell);
         }
-        newCol++;
-      }
+      });
       newRow++;
     }
 
     const outRows = newRow;
-    const outCols = endCIdx - startCIdx + 1;
+    const outCols = keptCols.length;
 
     newSheetData['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: outRows - 1, c: outCols - 1 } });
 
-    // Preserve column widths for selected columns
+    // Preserve column widths for kept columns only
     if (origSheet['!cols']) {
-      newSheetData['!cols'] = origSheet['!cols'].slice(startCIdx, endCIdx + 1);
+      newSheetData['!cols'] = keptCols.map(c => origSheet['!cols'][c] || {});
     }
 
     XLSX.utils.book_append_sheet(newWb, newSheetData, 'Table');
@@ -679,7 +764,12 @@
     const safeName = sheetName.replace(/[^a-zA-Z0-9_-]/g, '_');
     XLSX.writeFile(newWb, `${safeName}_table_only.xlsx`);
 
-    showStatus(`Downloaded ${outRows} rows × ${outCols} columns as "${safeName}_table_only.xlsx"`);
+    const manualSkipsInRange = [...skippedCols].filter(c => c >= startCIdx && c <= endCIdx && !emptyCols.has(c)).length;
+    const removedParts = [];
+    if (emptyCols.size)      removedParts.push(`${emptyCols.size} empty`);
+    if (manualSkipsInRange)  removedParts.push(`${manualSkipsInRange} skipped`);
+    const removedNote = removedParts.length ? ` (${removedParts.join(', ')} columns removed)` : '';
+    showStatus(`Downloaded ${outRows} rows × ${outCols} columns as "${safeName}_table_only.xlsx"${removedNote}`);
   }
 </script>
 </body>
